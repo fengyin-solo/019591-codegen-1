@@ -1,0 +1,119 @@
+// 变量定义
+$primary-color: #409EFF;
+$success-color: #67C23A;
+$warning-color: #E6A23C;
+$danger-color: #F56C6C;
+$info-color: #909399;
+
+$bg-color: #f5f7fa;
+$bg-color-dark: #e4e7ed;
+$border-color: #dcdfe6;
+$text-color: #303133;
+$text-color-secondary: #606266;
+$text-color-placeholder: #c0c4cc;
+
+$spacing-xs: 4px;
+$spacing-sm: 8px;
+$spacing-md: 16px;
+$spacing-lg: 24px;
+$spacing-xl: 32px;
+
+$border-radius-sm: 4px;
+$border-radius-md: 8px;
+$border-radius-lg: 12px;
+
+$shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.08);
+$shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+$shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+// 全局样式重置
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
+  font-size: 14px;
+  color: $text-color;
+  background-color: $bg-color;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+}
+
+// 滚动条样式
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: $bg-color;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: $border-color;
+  border-radius: 3px;
+  
+  &:hover {
+    background: $info-color;
+  }
+}
+
+// 通用卡片样式
+.card {
+  background: #fff;
+  border-radius: $border-radius-md;
+  box-shadow: $shadow-sm;
+  border: 1px solid $border-color;
+}
+
+// 通用标题样式
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: $text-color;
+  padding: $spacing-sm $spacing-md;
+  border-bottom: 1px solid $border-color;
+  background: $bg-color;
+}
+
+// 工具提示样式
+.tooltip-content {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+// 过渡动画
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+// Element Plus 覆盖样式
+.el-button {
+  transition: all 0.2s ease;
+}
+
+.el-input__wrapper {
+  transition: box-shadow 0.2s ease;
+}
+
+.el-form-item__label {
+  font-size: 13px;
+  color: $text-color-secondary;
+}

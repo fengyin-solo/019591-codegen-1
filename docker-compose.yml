@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  frontend-admin:
+    build:
+      context: ./frontend-admin
+      dockerfile: Dockerfile
+    container_name: label-editor-frontend
+    ports:
+      - "8081:80"
+    restart: unless-stopped
+    networks:
+      - label-network
+
+networks:
+  label-network:
+    driver: bridge
