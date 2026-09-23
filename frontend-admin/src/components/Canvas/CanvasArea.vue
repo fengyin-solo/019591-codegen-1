@@ -1,6 +1,10 @@
 <template>
   <div class="canvas-area card">
-    <div class="canvas-wrapper" ref="wrapperRef" @click.self="clearSelection" @drop="handleDrop" @dragover="handleDragOver">
+    <div class="canvas-body">
+      <div class="ruler-corner"></div>
+      <CanvasRuler ref="hRulerRef" direction="h" :get-canvas-origin="getCanvasOrigin" class="ruler-h" />
+      <CanvasRuler ref="vRulerRef" direction="v" :get-canvas-origin="getCanvasOrigin" class="ruler-v" />
+      <div class="canvas-wrapper" ref="wrapperRef" @scroll="handleScroll" @click.self="clearSelection" @drop="handleDrop" @dragover="handleDragOver">
       <div class="canvas-container" :style="canvasContainerStyle">
         <canvas ref="canvasRef" :width="store.canvasPixelWidth" :height="store.canvasPixelHeight" class="export-canvas" />
         <div class="edit-area">
@@ -19,12 +23,15 @@
             </div>
           </div>
         </div>
+        <div v-for="x in guides.v" :key="`v-${x}`" class="guide-line guide-line-v" :style="{ left: `${x}px` }" />
+        <div v-for="y in guides.h" :key="`h-${y}`" class="guide-line guide-line-h" :style="{ top: `${y}px` }" />
       </div>
+    </div>
     </div>
     <div class="canvas-info">
       <span>画布: {{ store.canvasWidth }}mm × {{ store.canvasHeight }}mm</span>
       <span>像素: {{ store.canvasPixelWidth }} × {{ store.canvasPixelHeight }} px</span>
-      <span class="tip">提示: Ctrl+点击多选元件</span>
+      <span class="tip">提示: Ctrl+点击多选元件，拖动/缩放时自动吸附对齐</span>
     </div>
   </div>
 </template>
@@ -32,6 +39,7 @@
 <script setup>
 import { ref, computed, nextTick } from 'vue'
 import { useCanvasStore } from '@/stores/canvas'
+import CanvasRuler from './CanvasRuler.vue'
 import TextElement from './elements/TextElement.vue'
 import RectElement from './elements/RectElement.vue'
 import CircleElement from './elements/CircleElement.vue'
@@ -47,7 +55,13 @@ import { ElMessage } from 'element-plus'
 const store = useCanvasStore()
 const canvasRef = ref(null)
 const wrapperRef = ref(null)
+const hRulerRef = ref(null)
+const vRulerRef = ref(null)
 const elementRefs = ref({})
+
+// 吸附参考线（画布像素坐标）
+const SNAP_THRESHOLD = 6
+const guides = ref({ v: [], h: [] })
 
 const resizeHandles = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
 let isDragging = false
@@ -86,6 +100,47 @@ const getElementStyle = (el) => ({
 const isSelected = (id) => store.selectedElementId === id
 const isMultiSelected = (id) => store.selectedElementIds.includes(id) && store.selectedElementIds.length > 1
 const clearSelection = () => store.clearSelection()
+
+// 画布原点(0,0)的屏幕坐标，供刻度尺对齐使用（滚动/缩放后仍同步）
+const getCanvasOrigin = () => {
+  const container = wrapperRef.value?.querySelector('.canvas-container')
+  if (!container) return { x: 0, y: 0 }
+  const rect = container.getBoundingClientRect()
+  return { x: rect.left, y: rect.top }
+}
+
+const handleScroll = () => {
+  hRulerRef.value?.redraw()
+  vRulerRef.value?.redraw()
+}
+
+// 收集吸附参考线：其他元件的边线/中心线 + 画布中线
+// 画布中没有其他元件时不产生参考线
+const getSnapLines = (excludeId) => {
+  const others = store.elements.filter(el => el.id !== excludeId && el.visible)
+  if (others.length === 0) return null
+  const v = [store.canvasPixelWidth / 2]
+  const h = [store.canvasPixelHeight / 2]
+  others.forEach(el => {
+    v.push(el.x, el.x + el.width / 2, el.x + el.width)
+    h.push(el.y, el.y + el.height / 2, el.y + el.height)
+  })
+  return { v, h }
+}
+
+// 在候选边中找到距离参考线最近的吸附，返回 { diff, line }
+const findSnap = (edges, lines) => {
+  let best = null
+  for (const line of lines) {
+    for (const edge of edges) {
+      const diff = line - edge
+      if (Math.abs(diff) <= SNAP_THRESHOLD && (!best || Math.abs(diff) < Math.abs(best.diff))) {
+        best = { diff, line }
+      }
+    }
+  }
+  return best
+}
 
 const handleDoubleClick = (element) => {
   if (element.type === 'text') {
@@ -130,26 +185,66 @@ const handleMouseMove = (e) => {
   if (!el) return
   
   if (isDragging && currentElementId) {
-    // 限制不超出画布
     let newX = Math.round(elementStartX + dx)
     let newY = Math.round(elementStartY + dy)
+
+    // 吸附：判定后只调整落点，不改变元件尺寸
+    const lines = getSnapLines(currentElementId)
+    if (lines) {
+      const snapX = findSnap([newX, newX + el.width / 2, newX + el.width], lines.v)
+      const snapY = findSnap([newY, newY + el.height / 2, newY + el.height], lines.h)
+      if (snapX) { newX += snapX.diff; guides.value.v = [snapX.line] } else { guides.value.v = [] }
+      if (snapY) { newY += snapY.diff; guides.value.h = [snapY.line] } else { guides.value.h = [] }
+    } else {
+      guides.value = { v: [], h: [] }
+    }
+
+    // 限制不超出画布
     newX = Math.max(0, Math.min(store.canvasPixelWidth - el.width, newX))
     newY = Math.max(0, Math.min(store.canvasPixelHeight - el.height, newY))
     store.updateElement(currentElementId, { x: newX, y: newY })
   } else if (isResizing && currentElementId) {
     let newX = elementStartX, newY = elementStartY, newW = elementStartW, newH = elementStartH
-    
+
     if (currentHandle.includes('e')) newW = Math.max(10, elementStartW + dx)
     if (currentHandle.includes('w')) { newW = Math.max(10, elementStartW - dx); newX = elementStartX + dx }
     if (currentHandle.includes('s')) newH = Math.max(10, elementStartH + dy)
     if (currentHandle.includes('n')) { newH = Math.max(10, elementStartH - dy); newY = elementStartY + dy }
-    
+
+    newX = Math.round(newX)
+    newY = Math.round(newY)
+    newW = Math.round(newW)
+    newH = Math.round(newH)
+
+    // 吸附：只调整正在拖动的边
+    const lines = getSnapLines(currentElementId)
+    if (lines) {
+      let snapV = null, snapH = null
+      if (currentHandle.includes('e')) snapV = findSnap([newX + newW], lines.v)
+      else if (currentHandle.includes('w')) snapV = findSnap([newX], lines.v)
+      if (currentHandle.includes('s')) snapH = findSnap([newY + newH], lines.h)
+      else if (currentHandle.includes('n')) snapH = findSnap([newY], lines.h)
+
+      if (snapV) {
+        if (currentHandle.includes('e')) newW += snapV.diff
+        else { newX += snapV.diff; newW -= snapV.diff }
+        guides.value.v = [snapV.line]
+      } else { guides.value.v = [] }
+      if (snapH) {
+        if (currentHandle.includes('s')) newH += snapH.diff
+        else { newY += snapH.diff; newH -= snapH.diff }
+        guides.value.h = [snapH.line]
+      } else { guides.value.h = [] }
+    } else {
+      guides.value = { v: [], h: [] }
+    }
+
     // 限制不超出画布
-    newX = Math.max(0, Math.round(newX))
-    newY = Math.max(0, Math.round(newY))
-    newW = Math.min(store.canvasPixelWidth - newX, Math.round(newW))
-    newH = Math.min(store.canvasPixelHeight - newY, Math.round(newH))
-    
+    newX = Math.max(0, newX)
+    newY = Math.max(0, newY)
+    newW = Math.min(store.canvasPixelWidth - newX, newW)
+    newH = Math.min(store.canvasPixelHeight - newY, newH)
+
     store.updateElement(currentElementId, { x: newX, y: newY, width: newW, height: newH })
   }
 }
@@ -158,6 +253,7 @@ const handleMouseUp = () => {
   isDragging = false
   isResizing = false
   currentElementId = null
+  guides.value = { v: [], h: [] }
   document.removeEventListener('mousemove', handleMouseMove)
   document.removeEventListener('mouseup', handleMouseUp)
 }
@@ -376,8 +472,24 @@ defineExpose({ exportCanvas })
 <style lang="scss" scoped>
 .canvas-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 
+.canvas-body {
+  flex: 1; min-height: 0; display: grid; overflow: hidden;
+  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-rows: 20px minmax(0, 1fr);
+}
+
+.ruler-corner {
+  grid-row: 1; grid-column: 1;
+  background: #f5f7fa;
+  border-right: 1px solid #dcdfe6;
+  border-bottom: 1px solid #dcdfe6;
+}
+.ruler-h { grid-row: 1; grid-column: 2; border-bottom: 1px solid #dcdfe6; overflow: hidden; }
+.ruler-v { grid-row: 2; grid-column: 1; border-right: 1px solid #dcdfe6; overflow: hidden; }
+
 .canvas-wrapper {
-  flex: 1; overflow: auto; background: #e4e7ed;
+  grid-row: 2; grid-column: 2;
+  overflow: auto; background: #e4e7ed;
   background-image: linear-gradient(45deg, #d0d0d0 25%, transparent 25%), linear-gradient(-45deg, #d0d0d0 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #d0d0d0 75%), linear-gradient(-45deg, transparent 75%, #d0d0d0 75%);
   background-size: 20px 20px; background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
   padding: 24px; display: flex; justify-content: flex-start; align-items: flex-start;
@@ -386,6 +498,10 @@ defineExpose({ exportCanvas })
 .canvas-container { position: relative; background: #fff; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15); overflow: hidden; flex-shrink: 0; }
 .export-canvas { position: absolute; top: 0; left: 0; visibility: hidden; pointer-events: none; }
 .edit-area { position: relative; width: 100%; height: 100%; }
+
+.guide-line { position: absolute; background: #ff4949; pointer-events: none; z-index: 100; }
+.guide-line-v { top: 0; bottom: 0; width: 1px; }
+.guide-line-h { left: 0; right: 0; height: 1px; }
 
 .canvas-element {
   position: absolute; cursor: move; border: 1px solid transparent; box-sizing: border-box;
